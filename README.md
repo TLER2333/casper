@@ -16,12 +16,19 @@ pip install -r requirements.txt
 The training and data parameters are managed via a config.json file.
 
 dataset_dir: The root directory containing your data files.
+
 train_data: Filename of the training dataset (.h5ad format).
+
 test_data: Filename of the validation/testing dataset.
+
 dist_graph: Path to the distance matrix CSV. This represents the shortest-path distances derived from the global prior graph.
+
 adj_graph: Path to the adjacency matrix CSV. This represents the connectivity of the global prior knowledge graph (e.g., NicheNet or other GRN/PPI).
+
 gene_name_path: Path to a text file (.txt) containing the ordered list of gene names corresponding to the var_names in your training AnnData object.
+
 pert_col: The column name in adata.obs indicating the perturbation label.
+
 control_name: The label used for control cells in the pert_col column.
 
 ## start training
