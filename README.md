@@ -34,6 +34,6 @@ control_name: The label used for control cells in the pert_col column.
 ## start training
 To initiate the training process, use the provided shell script. This script handles the distributed data parallel (DDP) setup if multiple GPUs are available.
 <pre>
-bash run.sh
+bash launch_train.sh
 </pre>
 Ensure that your run.sh points to the correct config.json and that the CUDA_VISIBLE_DEVICES are set correctly for your hardware.
