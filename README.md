@@ -37,3 +37,9 @@ To initiate the training process, use the provided shell script. This script han
 bash launch_train.sh
 </pre>
 Ensure that your run.sh points to the correct config.json and that the CUDA_VISIBLE_DEVICES are set correctly for your hardware.
+
+## start validation
+Once the training is complete, you can evaluate the model's performance on the test set and extract the identified causal subgraphs. Use the provided validation script, ensuring it points to the same config.json used during training to maintain consistency in data paths and model architecture.
+<pre>
+bash launch_validation.sh
+</pre>
