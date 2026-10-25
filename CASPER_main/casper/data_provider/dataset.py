@@ -54,14 +54,13 @@ class H5ADReader:
             expr = adata.layers["counts"][row]
         else:
             expr = adata.X[row]
-        
+            if "log1p" in adata.uns and adata.uns["log1p"]:
+                expr = np.expm1(expr)
+
         if scipy.sparse.issparse(expr):
             expr = expr.toarray().squeeze()
         else:
             expr = expr.squeeze()
-
-        if "log1p" in adata.uns and adata.uns["log1p"]:
-            expr = np.expm1(expr)
         return expr
 
     def get_control_item(self, name):

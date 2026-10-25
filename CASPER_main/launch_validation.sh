@@ -1,10 +1,13 @@
-#!/bin/bash
+#!/usr/bin/env bash
+set -euo pipefail
 
-export CUDA_VISIBLE_DEVICES=0
+CONFIG_PATH="${1:-configs/schmidt.json}"
+CHECKPOINT_STEP="${2:-20000}"
+SEED="${3:-42}"
+export CUDA_VISIBLE_DEVICES="${CUDA_VISIBLE_DEVICES:-0}"
 
-CHECKPOINT_STEP=10000
-CONFIG_PATH="config.json"
-
-python start_validation.py \
-    --checkpoint $CHECKPOINT_STEP \
-    --config $CONFIG_PATH
+python start_validate.py \
+    --config "${CONFIG_PATH}" \
+    --checkpoint "${CHECKPOINT_STEP}" \
+    --seed "${SEED}" \
+    --output "results/$(basename "${CONFIG_PATH}" .json)_step${CHECKPOINT_STEP}.json"

@@ -1,6 +1,8 @@
 import numpy as np
+import torch
 from torch.utils.data import DataLoader
 from .dataset import TrainDataset, ValidationDataset
+from casper.utils import seed_worker
 
 class TrainSampler:
     def __init__(self):
@@ -14,12 +16,16 @@ class TrainLoader(DataLoader):
     def __init__(self, args):
         self.dataset = TrainDataset(args)
         self.sampler = TrainSampler()
+        generator = torch.Generator()
+        generator.manual_seed(int(getattr(args, "seed", 42)))
         super().__init__(
             self.dataset,
             batch_size=None,
             sampler=self.sampler,
             num_workers=6,
             pin_memory=True,
+            worker_init_fn=seed_worker,
+            generator=generator,
         )
 
 class ValidationSampler:
@@ -39,10 +45,14 @@ class ValidationLoader(DataLoader):
     def __init__(self, args):
         self.dataset = ValidationDataset(args)
         self.sampler = ValidationSampler(end_iter=len(self.dataset))
+        generator = torch.Generator()
+        generator.manual_seed(int(getattr(args, "seed", 42)))
         super().__init__(
             self.dataset,
             batch_size=None,
             sampler=self.sampler,
             num_workers=1,
             pin_memory=True,
+            worker_init_fn=seed_worker,
+            generator=generator,
         )

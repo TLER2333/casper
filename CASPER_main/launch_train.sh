@@ -1,14 +1,8 @@
-#!/bin/bash
+#!/usr/bin/env bash
+set -euo pipefail
 
-export CUDA_VISIBLE_DEVICES=2
-NUM_GPUS=1
-CONFIG_PATH="data/config_norman.json"
-MASTER_PORT=29500
+CONFIG_PATH="${1:-configs/schmidt.json}"
+SEED="${2:-42}"
+export CUDA_VISIBLE_DEVICES="${CUDA_VISIBLE_DEVICES:-0}"
 
-echo "Starting training on $NUM_GPUS GPUs..."
-
-OMP_NUM_THREADS=1 torchrun \
-    --nproc_per_node=$NUM_GPUS \
-    --master_port=$MASTER_PORT \
-    start_train.py \
-    --config $CONFIG_PATH
+python start_train.py --config "${CONFIG_PATH}" --seed "${SEED}"

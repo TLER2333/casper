@@ -77,9 +77,14 @@ build_adj_from_genes <- function(rds_path, gene_path, out_path) {
 }
 
 
-# Example usage
-build_adj_from_genes(
-  rds_path = "weighted_networks.rds",
-  gene_path = "new_gene_list.txt",
-  out_path = "adj_matrix.csv"
+args <- commandArgs(trailingOnly = TRUE)
+if (length(args) != 3) {
+  stop("Usage: Rscript process_priorgraph.R weighted_networks.rds gene_name.txt adj_matrix.csv")
+}
+
+stats <- build_adj_from_genes(
+  rds_path = args[[1]],
+  gene_path = args[[2]],
+  out_path = args[[3]]
 )
+print(stats)

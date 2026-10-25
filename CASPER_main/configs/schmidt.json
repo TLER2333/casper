@@ -1,0 +1,35 @@
+{
+    "dataset_dir": "./data/schmidt",
+    "train_data": "train.h5ad",
+    "test_data": "test.h5ad",
+    "dist_graph": "dist_matrix.csv",
+    "adj_graph": "adj_matrix.csv",
+    "gene_name_path": "./data/schmidt/gene_name.txt",
+    "pert_col": "perturbation",
+    "control_name": "control",
+
+    "log_dir": "./runs/schmidt/logs",
+    "model_dir": "./runs/schmidt/checkpoints",
+
+    "d_model": 256,
+    "n_cls": 2048,
+    "z_dim": 64,
+    "beta": 0.001,
+    "triv_weight": 0.1,
+    "label_smoothing": 0.1,
+    "target_k": 50.0,
+    "max_sparse_weight": 0.001,
+    "full_prune_step": 10000,
+
+    "global_batch_size": 128,
+    "local_batch_size": 2,
+    "lr": 0.001,
+    "warmup_step": 2000,
+    "nr_step": 20000,
+    "mixed_precision": true,
+    "seed": 42,
+    "deterministic": false,
+
+    "save_interval_step": 500,
+    "save_interval_time": 3600
+}

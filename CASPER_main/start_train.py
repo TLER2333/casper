@@ -11,6 +11,7 @@ from casper.trainer import Trainer
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--config", type=str, default="config.json", help="Path to the config file")
+    parser.add_argument("--seed", type=int, default=None, help="Override the seed in the config")
     parser.add_argument("--local-rank", type=int, default=os.getenv('LOCAL_RANK', -1), help="Local rank")
     args = parser.parse_args()
 
@@ -34,7 +35,12 @@ def main():
         print("[Init] Running in single process mode.")
 
     try:
-        with Trainer(config_path=args.config, local_rank=local_rank, world_rank=world_rank) as trainer:
+        with Trainer(
+            config_path=args.config,
+            local_rank=local_rank,
+            world_rank=world_rank,
+            seed=args.seed,
+        ) as trainer:
             trainer.train()
     except Exception as e:
         print(f"[Error] Rank {world_rank} crashed with error: {e}")

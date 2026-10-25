@@ -1,98 +1,93 @@
 #!/usr/bin/env python
+import json
 import os
 import sys
-import json
-import torch
+from pathlib import Path
+from types import SimpleNamespace
+
 import click
 import numpy as np
-from types import SimpleNamespace
-from pathlib import Path
-from collections import defaultdict
-from sklearn.metrics import f1_score
+import torch
 from tqdm import tqdm
 
 sys.path.append(os.getcwd())
 
-from casper.model.casper import Casper as model_fn
 from casper.data_provider.data_loader import ValidationLoader
+from casper.evaluation import (
+    category_names_from_h5ad,
+    evaluate_single_label_logits,
+    resolve_data_path,
+)
+from casper.model.casper import Casper
+from casper.utils import set_seed
+
 
 def load_model(step, args):
-    model = model_fn(args)
-    model_path = os.path.join(args.model_dir, f"checkpoint-step-{step}.pth")
-    
-    print(f"Loading checkpoint from {model_path}")
+    model = Casper(args)
+    model_path = Path(args.model_dir) / f"checkpoint-step-{step}.pth"
+    if not model_path.exists():
+        raise FileNotFoundError(f"checkpoint not found: {model_path}")
+
     checkpoint = torch.load(model_path, map_location="cpu")
-    
-    state_dict = checkpoint["state_dict"]
-    new_state_dict = {}
-    for k, v in state_dict.items():
-        if k.startswith("module."):
-            k = k[7:]
-        new_state_dict[k] = v
-        
-    model.load_state_dict(new_state_dict)
+    state_dict = {
+        key.removeprefix("module."): value
+        for key, value in checkpoint["state_dict"].items()
+    }
+    model.load_state_dict(state_dict)
     return model
 
-def _validate_fn(model, args):
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    model.to(device)
-    
-    loader = ValidationLoader(args)
-    b_losses = defaultdict(list)
-    b_metrics = defaultdict(list)
-    y_true, y_pred = [], []
-    
-    with torch.no_grad():
-        for i, batch_data in enumerate(tqdm(loader)):
-            data = {k: v.to(device) for k, v in batch_data.items()}
-            
-            output = model(data, 0)
-            
-            losses = {k: v.item() for k, v in output.items() if k.endswith("loss")}
-            metrics = {
-                k: v.item() 
-                for k, v in output.items() 
-                if k.endswith("_acc") or k.startswith("token")
-            }
-            
-            _, pred = output["pred"].topk(1, 1, True, True)
-            
-            y_true.extend(data["perturb"].cpu().numpy().tolist())
-            y_pred.extend(pred.cpu().numpy().flatten().tolist())
-            
-            for k, v in losses.items():
-                b_losses[k].append(v)
-            for k, v in metrics.items():
-                b_metrics[k].append(v)
 
-            if i % 100 == 99:
-                loss_str = ", ".join(
-                    [f"{k}: {np.mean(v):.6f}" for k, v in b_losses.items()]
-                )
-                metric_str = ", ".join(
-                    [f"{k}: {np.mean(v):.6f}" for k, v in b_metrics.items()]
-                )
-                f1 = f1_score(y_true, y_pred, average='weighted')
-                print(f"{loss_str}, {metric_str} | f1 score: {f1:.6f}")
-    
-    final_f1 = f1_score(y_true, y_pred, average='weighted')
-    print(f"Final F1 Score: {final_f1:.6f}")
+def valid_candidate_ids(args):
+    test_path = resolve_data_path(args.dataset_dir, args.test_data)
+    names = category_names_from_h5ad(test_path, args.pert_col)
+    return [i for i, name in enumerate(names) if name != args.control_name]
+
+
+def evaluate_single(model, args):
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    model.to(device).eval()
+    loader = ValidationLoader(args)
+
+    logits, targets = [], []
+    with torch.no_grad():
+        for batch_data in tqdm(loader, desc="single-label evaluation"):
+            data = {key: value.to(device) for key, value in batch_data.items()}
+            output = model.predict(data)
+            logits.append(output["pred"].detach().cpu().numpy())
+            targets.append(data["perturb"].detach().cpu().numpy())
+
+    logits = np.concatenate(logits, axis=0)
+    targets = np.concatenate(targets, axis=0)
+    return evaluate_single_label_logits(logits, targets, valid_candidate_ids(args))
+
 
 @click.command()
-@click.option("-c", "--checkpoint", help="Step to evaluate", required=True)
-@click.option("--config", default="config.json", help="Path to config file")
-def evaluate(checkpoint, config):
-    with open(config, 'r') as f:
-        config_dict = json.load(f)
-    
+@click.option("-c", "--checkpoint", type=int, required=True, help="Checkpoint step")
+@click.option("--config", default="configs/schmidt.json", show_default=True)
+@click.option("--seed", type=int, default=None, help="Override the config seed")
+@click.option("--output", type=click.Path(dir_okay=False), default=None)
+def evaluate(checkpoint, config, seed, output):
+    with open(config, "r") as handle:
+        config_dict = json.load(handle)
+    if seed is not None:
+        config_dict["seed"] = seed
+    config_dict.setdefault("seed", 42)
+    config_dict.setdefault("deterministic", False)
     args = SimpleNamespace(**config_dict)
     args.local_rank = 0
     args.world_rank = 0
+    args.model_dir = str(Path(args.model_dir) / f"seed-{args.seed}")
 
-    model = load_model(checkpoint, args)
-    model.eval()
+    set_seed(args.seed, deterministic=args.deterministic)
+    metrics = evaluate_single(load_model(checkpoint, args), args)
+    rendered = json.dumps(metrics, indent=2, sort_keys=True)
+    print(rendered)
 
-    _validate_fn(model, args)
+    if output:
+        output_path = Path(output)
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        output_path.write_text(rendered + "\n")
+
 
 if __name__ == "__main__":
     evaluate()

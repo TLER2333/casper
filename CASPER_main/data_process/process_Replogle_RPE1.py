@@ -21,6 +21,10 @@ from pathlib import Path
 
 def main():
     parser = argparse.ArgumentParser()
+    parser.add_argument("--input", required=True, help="Raw Replogle RPE1 .h5ad")
+    parser.add_argument("--output_dir", default="./data/replogle_rpe1")
+    parser.add_argument("--pert_col", default="perturbation")
+    parser.add_argument("--control_name", default="control")
     parser.add_argument("--min_cells", type=int, default=50,
                         help="Minimum number of cells per perturbation. Perturbations below this threshold will be discarded.")
     parser.add_argument("--n_top_genes", type=int, default=3000,
@@ -30,10 +34,10 @@ def main():
 
     MIN_CELLS = args.min_cells
     N_TOP_GENES = args.n_top_genes
-    CONTROL_LABEL = "control"
+    CONTROL_LABEL = args.control_name
 
-    adata_path = "/ReplogleWeissman2022_rpe1.h5ad"
-    output_dir = Path(f"./rpe1_processed")
+    adata_path = args.input
+    output_dir = Path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
 
     # ==========================================
@@ -41,22 +45,21 @@ def main():
     # ==========================================
     print(f"Reading: {adata_path}")
     adata = sc.read_h5ad(adata_path)
-    adata = adata[~adata.obs["perturbation"].isna()].copy()
+    adata = adata[~adata.obs[args.pert_col].isna()].copy()
 
     # ==========================================
     # 2. Filter perturbations by cell count
     # ==========================================
     print(f"Filtering perturbations with < {MIN_CELLS} cells...")
-    cell_counts = adata.obs["perturbation"].value_counts()
+    cell_counts = adata.obs[args.pert_col].value_counts()
     valid_perts = [p for p in cell_counts.index
                    if cell_counts[p] >= MIN_CELLS or p == CONTROL_LABEL]
-    adata = adata[adata.obs["perturbation"].isin(valid_perts)].copy()
+    adata = adata[adata.obs[args.pert_col].isin(valid_perts)].copy()
 
     # ==========================================
     # 3. Feature selection (HVGs + Target Genes)
     # ==========================================
     print(f"Calculating HVGs (top {N_TOP_GENES})...")
-    adata.raw = adata.copy()
     sc.pp.highly_variable_genes(adata, n_top_genes=N_TOP_GENES, flavor="seurat_v3")
     hvg_genes = set(adata.var_names[adata.var["highly_variable"]])
 
@@ -69,7 +72,7 @@ def main():
     # ==========================================
     print("Normalizing and applying Log1p...")
     adata = adata[:, final_genes_sorted].copy()
-    adata.X = adata.raw[:, final_genes_sorted].X.copy()
+    adata.layers["counts"] = adata.X.copy()
     sc.pp.normalize_total(adata, target_sum=1e4)
     sc.pp.log1p(adata)
 
@@ -80,13 +83,13 @@ def main():
     np.random.seed(args.seed)
 
     # Crucial: Unify categorical codes before splitting to ensure consistency across splits
-    all_categories = sorted(adata.obs["perturbation"].unique().tolist())
-    adata.obs["perturbation"] = adata.obs["perturbation"].astype("category")
-    adata.obs["perturbation"] = adata.obs["perturbation"].cat.set_categories(all_categories)
+    all_categories = sorted(adata.obs[args.pert_col].unique().tolist())
+    adata.obs[args.pert_col] = adata.obs[args.pert_col].astype("category")
+    adata.obs[args.pert_col] = adata.obs[args.pert_col].cat.set_categories(all_categories)
 
     split_labels = np.empty(adata.n_obs, dtype=object)
 
-    for pert, group in adata.obs.groupby("perturbation", observed=True):
+    for pert, group in adata.obs.groupby(args.pert_col, observed=True):
         indices = group.index.values
         idx_arr = np.arange(len(indices))
         np.random.shuffle(idx_arr)
@@ -134,7 +137,7 @@ def main():
     print(f"\n{'='*50}")
     print(f"Done! Output directory: {output_dir}")
     print(f"\nPlease set the following in config.json:")
-    print(f'  "n_cls": {len(all_categories)}')
+    print(f'  effective candidates (including control): {len(all_categories)}')
     print(f'  "dataset_dir": "{output_dir}"')
     print(f'  "train_data": "{output_dir / "train.h5ad"}"')
     print(f'  "test_data": "{output_dir / "test.h5ad"}"')

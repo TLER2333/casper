@@ -2,7 +2,6 @@ import math
 import torch
 from torch import nn
 import torch.nn.functional as F
-from .base_model import BaseModel
 from .attention import TransformerEncoder
 
 class GNNLayer(nn.Module):
@@ -231,7 +230,8 @@ class Casper(nn.Module):
         src, _ = self.encoder(src, mask, mask_attn_embed)
         return src
 
-    def forward(self, data, epoch):
+    def predict(self, data):
+        """Run the paired encoder and return prediction/attribution tensors."""
         mask_dis_long = data["dis_matrix"].long()
         data_pert = {
             "ratio": data["ratio"],
@@ -264,7 +264,9 @@ class Casper(nn.Module):
         logvar_c = torch.clamp(self.logvar_cls(h_cls_cat), -10, 5)
         z_cls = self.reparameterize(mu_c, logvar_c)
         
-        node_scores, _, h_struct = self.subgraph_extractor(emb_pert, emb_ctrl, data["adj_matrix"])
+        node_scores, edge_scores, h_struct = self.subgraph_extractor(
+            emb_pert, emb_ctrl, data["adj_matrix"]
+        )
         
         mask_valid = (data["u_token"] != 40000).float().unsqueeze(-1)
         w_crit = node_scores * mask_valid
@@ -289,13 +291,17 @@ class Casper(nn.Module):
             "mu_cls": mu_c,
             "logvar_cls": logvar_c,
             "node_scores": node_scores,
+            "edge_scores": edge_scores,
         }
-        
-        out.update(self._compute_loss(out, data, epoch))
+        return out
+
+    def forward(self, data, training_step):
+        out = self.predict(data)
+        out.update(self._compute_loss(out, data, training_step))
         out.update(self._compute_metric(out, data))
         return out
 
-    def _compute_loss(self, out, data, epoch=0):
+    def _compute_loss(self, out, data, training_step=0):
         target = data["perturb"]
         loss_ce = F.cross_entropy(out["pred"], target, label_smoothing=self.args.label_smoothing)
         loss_sub_ce = F.cross_entropy(out["pred_sub"], target, label_smoothing=self.args.label_smoothing)
@@ -310,11 +316,15 @@ class Casper(nn.Module):
 
         diff = F.relu(current_k - target_k)
         loss_sparse_val = (diff / target_k).mean() 
-        full_prune_epoch = self.args.full_prune_epoch
+        full_prune_step = getattr(
+            self.args,
+            "full_prune_step",
+            getattr(self.args, "full_prune_epoch", 10000),
+        )
         max_sparse_weight = self.args.max_sparse_weight
         
-        if epoch < full_prune_epoch:
-            progress = epoch / full_prune_epoch
+        if training_step < full_prune_step:
+            progress = training_step / full_prune_step
             w_sparse = max_sparse_weight * progress
         else:
             w_sparse = max_sparse_weight

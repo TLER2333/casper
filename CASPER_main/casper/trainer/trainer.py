@@ -12,24 +12,36 @@ from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.cuda.amp import autocast, GradScaler
 from .logger import Logger
 
-from casper.data_provider.data_loader import TrainLoader, ValidationLoader
+from casper.data_provider.data_loader import TrainLoader
 from casper.model.casper import Casper as model_fn
+from casper.utils import set_seed
 
 class Trainer:
-    def __init__(self, config_path, local_rank, world_rank):
+    def __init__(self, config_path, local_rank, world_rank, seed=None):
         with open(config_path, 'r') as f:
             config_dict = json.load(f)
+
+        if seed is not None:
+            config_dict["seed"] = int(seed)
+        config_dict.setdefault("seed", 42)
+        config_dict.setdefault("deterministic", False)
         
         self.args = SimpleNamespace(**config_dict)
         self.args.local_rank = local_rank
         self.args.world_rank = world_rank
+        self.effective_seed = set_seed(
+            self.args.seed + world_rank,
+            deterministic=self.args.deterministic,
+        )
 
         self.local_rank = local_rank
         self.world_rank = world_rank
         self.device = torch.device(f"cuda:{local_rank}")
         
-        self.log_dir = Path(self.args.log_dir)
-        self.model_dir = Path(self.args.model_dir)
+        self.log_dir = Path(self.args.log_dir) / f"seed-{self.args.seed}"
+        self.model_dir = Path(self.args.model_dir) / f"seed-{self.args.seed}"
+        self.args.log_dir = str(self.log_dir)
+        self.args.model_dir = str(self.model_dir)
         
         if self.world_rank == 0:
             self.log_dir.mkdir(parents=True, exist_ok=True)
@@ -44,7 +56,6 @@ class Trainer:
         self.n_accumulate = self.args.global_batch_size // self.n_gpu // self.args.local_batch_size
         
         self.train_loader = TrainLoader(self.args)
-        self.val_loader = ValidationLoader(self.args)
         
         total_samples = len(self.train_loader.dataset)
         self.steps_per_epoch = max(1, total_samples // self.args.global_batch_size)
@@ -54,6 +65,9 @@ class Trainer:
         if self.world_rank == 0:
             self.logger.info(str(self.model))
             self.logger.info(f"Config loaded from {config_path}")
+            self.logger.info(
+                f"Seed: {self.args.seed}; effective rank seed: {self.effective_seed}"
+            )
             
         if self.n_gpu > 1:
             self.model = DDP(self.model, device_ids=[self.local_rank], find_unused_parameters=True)
@@ -107,7 +121,7 @@ class Trainer:
                 data = {k: v.to(self.device) for k, v in batch_data.items()}
                 
                 with autocast(enabled=self.args.mixed_precision):
-                    output = self.model(data, current_epoch)
+                    output = self.model(data, i)
                     
                     losses = {k: v for k, v in output.items() if k.endswith("loss")}
                     metrics = {
